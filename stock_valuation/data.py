@@ -91,3 +91,17 @@ def fetch_company_data(ticker_symbol: str) -> dict[str, Any]:
         "ebitda": info_number(company_info, "ebitda"),
         "trailing_dividend_per_share": trailing_dividend_per_share,
     }
+
+
+
+def fetch_price_history(ticker_symbol: str, *, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+    """Fetch split/dividend-adjusted daily OHLC candles for the chart."""
+    ticker = yf.Ticker(ticker_symbol.strip().upper())
+    price_history = ticker.history(period=period, interval=interval, auto_adjust=True)
+    if price_history is None or price_history.empty:
+        raise ValueError(f"Yahoo Finance returned no {interval} OHLC data for {ticker_symbol}.")
+    required_columns = {"Open", "High", "Low", "Close"}
+    missing_columns = required_columns.difference(price_history.columns)
+    if missing_columns:
+        raise ValueError(f"OHLC data is missing columns: {sorted(missing_columns)}")
+    return price_history.dropna(subset=["Open", "High", "Low", "Close"])

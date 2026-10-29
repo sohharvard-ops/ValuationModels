@@ -1,6 +1,6 @@
 # Stock valuation models
 
-A Python project that fetches company data with yfinance, calculates four valuation estimates, and plots the per-share results against the latest share price.
+A Python project that fetches company data with yfinance, calculates four valuation estimates, and plots one year of daily candlesticks with horizontal lines for the latest market price and available model estimates.
 
 ## Run
 
@@ -28,7 +28,7 @@ Optional assumptions can be supplied on the command line. Rates are decimals, so
 python valuation_models.py AAPL --growth 0.05 --wacc 0.09 --terminal-growth 0.025 --peers MSFT GOOGL META
 ```
 
-The calculation results print in the terminal, and a chart such as `AAPL_valuation.png` is saved in the current folder.
+The calculation results print in the terminal, and a one-year adjusted daily candlestick chart with market-price and valuation lines (where available) is saved as `AAPL_valuation.png` in the current folder.
 
 ## How the models work
 

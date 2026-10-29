@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any, Sequence
 import json
-from .data import fetch_company_data
+from .data import fetch_company_data, fetch_price_history
 from .dcf import calculate_dcf
 from .dividend_discount import calculate_dividend_discount
 from .asset_based import calculate_asset_based_value
@@ -121,37 +121,69 @@ def analyze_ticker(ticker_symbol: str, *, peer_tickers: Sequence[str] = (), fore
 
 
 def plot_valuation_chart(valuation_report: dict[str, Any], chart_path: str) -> str:
-    """Plot market price and each available model's estimated value per share."""
+    """Draw daily candlesticks and horizontal lines for available price estimates."""
+    import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
     company_data = valuation_report["company_data"]
     valuation_results = valuation_report["valuations"]
-    chart_labels = []
-    per_share_values = []
-    if company_data["current_price"] is not None:
-        chart_labels.append("Market price")
-        per_share_values.append(company_data["current_price"])
-    for chart_label, valuation_key, price_key in [
-        ("DCF", "dcf", "intrinsic_value_per_share"),
+    price_history = fetch_price_history(company_data["ticker_symbol"], period="1y", interval="1d")
+    date_numbers = mdates.date2num(price_history.index.to_pydatetime())
+
+    figure, axis = plt.subplots(figsize=(13, 7))
+    up_color = "#16a34a"
+    down_color = "#dc2626"
+    candle_width_days = 0.65
+    for date_number, (_, price_row) in zip(date_numbers, price_history.iterrows()):
+        open_price = float(price_row["Open"])
+        high_price = float(price_row["High"])
+        low_price = float(price_row["Low"])
+        close_price = float(price_row["Close"])
+        candle_color = up_color if close_price >= open_price else down_color
+        axis.vlines(date_number, low_price, high_price, color=candle_color, linewidth=0.8, zorder=2)
+        candle_body_bottom = min(open_price, close_price)
+        candle_body_height = abs(close_price - open_price)
+        if candle_body_height == 0:
+            candle_body_height = max(abs(open_price) * 0.0005, 0.001)
+        axis.add_patch(Rectangle(
+            (date_number - candle_width_days / 2, candle_body_bottom),
+            candle_width_days, candle_body_height,
+            facecolor=candle_color, edgecolor=candle_color, linewidth=0.7, zorder=3,
+        ))
+
+    line_colors = {
+        "Market price": "#334155",
+        "DCF estimate": "#2563eb",
+        "Dividend discount": "#16a34a",
+        "Asset based": "#f59e0b",
+        "Comparable companies": "#9333ea",
+    }
+    latest_market_price = company_data["current_price"] or float(price_history["Close"].iloc[-1])
+    price_levels = [("Market price", latest_market_price)]
+    for line_label, model_key, value_key in [
+        ("DCF estimate", "dcf", "intrinsic_value_per_share"),
         ("Dividend discount", "dividend_discount", "intrinsic_value_per_share"),
         ("Asset based", "asset_based", "intrinsic_value_per_share"),
         ("Comparable companies", "comparable_companies", "implied_value_per_share"),
     ]:
-        valuation = valuation_results[valuation_key]
-        if valuation is not None:
-            chart_labels.append(chart_label)
-            per_share_values.append(valuation[price_key])
-    if not per_share_values:
-        raise ValueError("No market price or valuation results are available to plot.")
-    figure, axis = plt.subplots(figsize=(10, 6))
-    colors = ["#64748b", "#2563eb", "#16a34a", "#f59e0b", "#9333ea"][:len(chart_labels)]
-    bars = axis.bar(chart_labels, per_share_values, color=colors)
-    axis.set_title(f"{company_data['ticker_symbol']} valuation per share")
-    axis.set_ylabel(f"Value per share ({company_data['currency'] or 'reported currency'})")
-    axis.grid(axis="y", alpha=0.25)
-    axis.tick_params(axis="x", rotation=15)
-    for bar, per_share_value in zip(bars, per_share_values):
-        axis.annotate(f"{per_share_value:,.2f}", (bar.get_x() + bar.get_width() / 2, bar.get_height()),
-                      xytext=(0, 4), textcoords="offset points", ha="center", va="bottom")
+        model_result = valuation_results[model_key]
+        if model_result is not None:
+            price_levels.append((line_label, model_result[value_key]))
+    for line_label, price_level in price_levels:
+        axis.axhline(
+            price_level, color=line_colors[line_label], linestyle="--", linewidth=1.2,
+            label=f"{line_label}: {price_level:,.2f}", zorder=1,
+        )
+
+    axis.set_title(f"{company_data['ticker_symbol']} daily candlesticks and valuation estimates (1 year)")
+    axis.set_ylabel(f"Adjusted share price ({company_data['currency'] or 'reported currency'})")
+    axis.set_xlabel("Date")
+    axis.xaxis_date()
+    axis.xaxis.set_major_locator(mdates.AutoDateLocator())
+    axis.xaxis.set_major_formatter(mdates.ConciseDateFormatter(axis.xaxis.get_major_locator()))
+    axis.grid(axis="y", alpha=0.22)
+    axis.legend(loc="best", fontsize=8, framealpha=0.9)
     figure.tight_layout()
     figure.savefig(chart_path, dpi=160, bbox_inches="tight")
     plt.show()
